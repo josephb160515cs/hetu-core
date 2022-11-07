@@ -55,7 +55,7 @@ final class PluginDiscovery
         }
 
         File file = artifact.getFile();
-        if (!file.getPath().endsWith("/target/classes")) {
+        if (!file.getPath().endsWith("\\target\\classes")) {
             throw new RuntimeException("Unexpected file for main artifact: " + file);
         }
         if (!file.isDirectory()) {
