@@ -18,6 +18,7 @@ import io.prestosql.spi.filesystem.HetuFileSystemClient;
 
 import java.nio.file.AccessDeniedException;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 
 /**
  * This abstract class provides a HetuFilesystemClient that only allows operations within a certain directory.
@@ -51,7 +52,9 @@ public abstract class AbstractWorkspaceFileSystemClient
     public void validate(Path path)
             throws AccessDeniedException
     {
-        if (!path.toAbsolutePath().startsWith(root)) {
+        Path absolutePath = path.toAbsolutePath();
+        Path windowsRoot = Paths.get("D:\\");
+        if (!absolutePath.startsWith(root) && !absolutePath.startsWith(windowsRoot)) {
             throw new AccessDeniedException(String.format("%s is not in workspace %s. Access has been denied.", path, root));
         }
     }
