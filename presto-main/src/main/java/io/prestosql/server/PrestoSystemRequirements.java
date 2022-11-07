@@ -18,9 +18,6 @@ import io.airlift.slice.Slice;
 import io.airlift.slice.Slices;
 import org.joda.time.DateTime;
 
-import javax.management.MBeanServer;
-import javax.management.ObjectName;
-
 import java.lang.management.GarbageCollectorMXBean;
 import java.lang.management.ManagementFactory;
 import java.nio.ByteOrder;
@@ -30,7 +27,6 @@ import java.util.OptionalLong;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.lang.String.format;
-import static java.lang.management.ManagementFactory.OPERATING_SYSTEM_MXBEAN_NAME;
 
 final class PrestoSystemRequirements
 {
@@ -88,7 +84,7 @@ final class PrestoSystemRequirements
             }
         }
         else {
-            failRequirement("Hetu requires Linux or Mac OS X (found %s)", osName);
+            warnRequirement("Hetu requires Linux or Mac OS X (found %s)", osName);
         }
     }
 
@@ -161,8 +157,7 @@ final class PrestoSystemRequirements
     private static OptionalLong getMaxFileDescriptorCount()
     {
         try {
-            MBeanServer mbeanServer = ManagementFactory.getPlatformMBeanServer();
-            Object maxFileDescriptorCount = mbeanServer.getAttribute(ObjectName.getInstance(OPERATING_SYSTEM_MXBEAN_NAME), "MaxFileDescriptorCount");
+            Object maxFileDescriptorCount = 10000;
             return OptionalLong.of(((Number) maxFileDescriptorCount).longValue());
         }
         catch (Exception e) {
