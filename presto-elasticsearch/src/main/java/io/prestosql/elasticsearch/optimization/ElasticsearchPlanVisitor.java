@@ -21,10 +21,12 @@ import io.prestosql.spi.plan.FilterNode;
 import io.prestosql.spi.plan.PlanNode;
 import io.prestosql.spi.plan.PlanNodeIdAllocator;
 import io.prestosql.spi.plan.PlanVisitor;
+import io.prestosql.spi.plan.Symbol;
 import io.prestosql.spi.plan.TableScanNode;
 import io.prestosql.spi.relation.RowExpression;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -65,16 +67,39 @@ public class ElasticsearchPlanVisitor
     private Optional<PlanNode> tryCreatingNewScanNode(PlanNode node)
     {
         if (node instanceof FilterNode) {
-            return tryCreatingNewFilterNode(((FilterNode) node));
+            return tryOptimizingFilterNode(((FilterNode) node));
         }
         else if (node instanceof AggregationNode) {
-            // TODO: 9/2/2022 implement specific logic when developing pushdown for aggregate
-            return Optional.empty();
+            return tryOptimizingAggregationNode(((AggregationNode) node));
         }
         return Optional.empty();
     }
 
-    private Optional<PlanNode> tryCreatingNewFilterNode(FilterNode node)
+    private Optional<PlanNode> tryOptimizingAggregationNode(AggregationNode aggregationNode)
+    {
+        Map<Symbol, AggregationNode.Aggregation> aggregations = aggregationNode.getAggregations();
+        List<Symbol> groupingKeys = aggregationNode.getGroupingKeys();
+
+        if (!ElasticAggregationBuilder.isOptimizationSupported(aggregations, groupingKeys)) {
+            return Optional.empty();
+        }
+        ElasticAggOptimizationContext elasticAggOptimizationContext = new ElasticAggOptimizationContext(aggregations, groupingKeys);
+
+        if (aggregationNode.getSource() instanceof TableScanNode) {
+            TableScanNode tableScanNodeOriginal = (TableScanNode) aggregationNode.getSource();
+            TableHandle aggregationNodeSourceTable = tableScanNodeOriginal.getTable();
+            ElasticsearchTableHandle elasticsearchTableHandle = (ElasticsearchTableHandle) aggregationNodeSourceTable.getConnectorHandle();
+
+            ElasticsearchTableHandle elasticsearchTableHandleNew = new ElasticsearchTableHandle(elasticsearchTableHandle.getSchema(), elasticsearchTableHandle.getIndex(), elasticsearchTableHandle.getConstraint(), elasticAggOptimizationContext, elasticsearchTableHandle.getQuery());
+            TableHandle tableHandleNew = new TableHandle(aggregationNodeSourceTable.getCatalogName(), elasticsearchTableHandleNew, aggregationNodeSourceTable.getTransaction(), aggregationNodeSourceTable.getLayout());
+            TableScanNode tableScanNodeNew = new TableScanNode(idAllocator.getNextId(), tableHandleNew, tableScanNodeOriginal.getOutputSymbols(), tableScanNodeOriginal.getAssignments(), tableScanNodeOriginal.getEnforcedConstraint(), tableScanNodeOriginal.getPredicate(), tableScanNodeOriginal.getStrategy(), tableScanNodeOriginal.getReuseTableScanMappingId(), tableScanNodeOriginal.getConsumerTableScanNodeCount(), tableScanNodeOriginal.isForDelete());
+            return Optional.of(tableScanNodeNew);
+        }
+
+        return Optional.empty();
+    }
+
+    private Optional<PlanNode> tryOptimizingFilterNode(FilterNode node)
     {
         RowExpression predicate = node.getPredicate();
         Optional<String> esQuery = convertPredicateToESQuery(predicate);
@@ -89,9 +114,8 @@ public class ElasticsearchPlanVisitor
         ElasticsearchTableHandle connectorHandleNew = new ElasticsearchTableHandle(connectorHandle.getSchema(), connectorHandle.getIndex(), esQuery);
         TableHandle tableHandleNew = new TableHandle(tableHandleOriginal.getCatalogName(), connectorHandleNew, tableHandleOriginal.getTransaction(), tableHandleOriginal.getLayout());
         TableScanNode tableScanNodeNew = new TableScanNode(idAllocator.getNextId(), tableHandleNew, tableScanNodeOriginal.getOutputSymbols(), tableScanNodeOriginal.getAssignments(), tableScanNodeOriginal.getEnforcedConstraint(), Optional.of(predicate), tableScanNodeOriginal.getStrategy(), tableScanNodeOriginal.getReuseTableScanMappingId(), tableScanNodeOriginal.getConsumerTableScanNodeCount(), tableScanNodeOriginal.isForDelete());
-        FilterNode filterNodeNew = new FilterNode(idAllocator.getNextId(), tableScanNodeNew, predicate);
 
-        return Optional.of(filterNodeNew);
+        return Optional.of(tableScanNodeNew);
     }
 
     private Optional<String> convertPredicateToESQuery(RowExpression predicate)
